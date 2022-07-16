@@ -23,18 +23,17 @@ int CurrentScreen = 0;
 // negative numbers for a GMT- offset. positive for a GMT+ offset
 // ex. -5 (GMT-5 aka Eastern Standard Time)
 const int tzOffsetHours = -5;
-// 0 if your country doesn't have dst, 1 if it does 
-// 1 (US)
-const int dstOffsetHours = 1;
+// 0 if it is not dst, 1 if it is
+const bool dst = true;
 
 bool PM = false;
 bool smin = false;
 bool shr = false;
 int h = 0;
 
-int datasetsAvailable = 36;
+int datasetsAvailable = 39;
 // uses automatic time server, set the correct server for your country for faster boot
-const char* timeSrv = "time.nist.gov";
+const char* timeSrv = "pool.ntp.org";
 // if this is set to true delay will be bypassed on the first request
 bool firstRun = true;
 LiquidCrystal_I2C lcd (0x27, 20,4);
@@ -42,7 +41,7 @@ LiquidCrystal_I2C lcd (0x27, 20,4);
 DynamicJsonDocument currentDataDocument(24576);
 // This contains a parsed version of the current forecast data buffer
 DynamicJsonDocument forecastsDocument(24576);
-
+ 
 int forecastedTemps[4];
 
 byte wifiActive[] = {
@@ -197,7 +196,17 @@ void UpdateDisplay() {
     lcd.print(day5);
     lcd.print(": ");
     lcd.print(forecastedTemps[4]);
-    lcd.print("F");
+    lcd.print("F ");
+    if (shr) { lcd.print(0); }
+    lcd.print(h);
+    lcd.print(":");
+    if (smin) { lcd.print(0); }
+    lcd.print(timeinfo.tm_min);
+    if (PM) {
+      lcd.print(" PM");
+    } else {
+      lcd.print(" AM");
+    }
   }
 }
 void setup() {
@@ -225,7 +234,11 @@ void setup() {
   lcd.write(byte(0));
   lcd.setCursor(0,1);
   lcd.print(WiFi.localIP());
-  configTime(tzOffsetHours * 3600, dstOffsetHours * 3600, timeSrv);
+  if (dst) {
+    configTime(tzOffsetHours * 3600 + 3600, 0, timeSrv);
+  } else {
+    configTime(tzOffsetHours * 3600, 0, timeSrv);
+  }
   delay(2000);
 }
 void loop() {
@@ -234,9 +247,6 @@ void loop() {
   if ((millis() - lastTime) > timerDelay || firstRun ) {
     // Check WiFi connection status
     if(WiFi.status()== WL_CONNECTED){
-      if (firstRun) {
-        firstRun = false;
-      }
       Serial.println("Sending http request to API endpoint " + CurrentWeatherAPI_URL);
       const String db1 = httpGETRequest(CurrentWeatherAPI_URL);
       const String db2 = httpGETRequest(ForecastAPI_URL);
@@ -252,7 +262,9 @@ void loop() {
       }
       if(!getLocalTime(&timeinfo)){
         Serial.println("Failed to obtain time");
-        return;
+      }
+      if (firstRun) {
+        firstRun = false;
       }
       int DT = 0;
       int ftime_day;
@@ -277,7 +289,11 @@ void loop() {
         ftime.tm_min = ftime_minute;
         ftime.tm_sec = ftime_sec;
         time_t timeSinceEpoch = mktime(&ftime);
-        DT = int(timeSinceEpoch);
+        if (dst) {
+          DT = int(timeSinceEpoch) - (tzOffsetHours * 3600) + 3600;
+        } else {
+          DT = int(timeSinceEpoch) - (tzOffsetHours * 3600);
+        }
         Serial.print("DT = ");
         Serial.print(datasetDT);
         Serial.print(" CalculatedDT = ");
